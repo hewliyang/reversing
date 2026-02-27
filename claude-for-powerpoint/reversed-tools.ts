@@ -170,6 +170,92 @@ function sanitizeXmlAmpersands(xml: string): string {
   return xml.replace(BARE_AMPERSAND_RE, "&amp;");
 }
 
+function escapeXmlForAttr(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// ============================================================================
+// Icon Tools
+// ============================================================================
+
+const ICONS_API_BASE = "https://pivot.claude.ai";
+const ICON_DEFAULT_SIZE = 72;
+const ICON_PNG_SIZE = 192;
+const SLIDE_WIDTH_PT = 720;
+const SLIDE_HEIGHT_PT = 540;
+const EMU_PER_PT = 12700;
+
+const iconCache = new Map<string, string>();
+
+async function registerContentType(
+  zip: JSZip,
+  extension: string,
+  contentType: string
+): Promise<void> {
+  const path = "[Content_Types].xml";
+  const xml = await zip.file(path)?.async("string");
+  if (!xml) return;
+
+  const NS = "http://schemas.openxmlformats.org/package/2006/content-types";
+  const doc = new DOMParser().parseFromString(xml, "text/xml");
+  const defaults = doc.getElementsByTagNameNS(NS, "Default");
+  for (let i = 0; i < defaults.length; i++) {
+    if (defaults[i].getAttribute("Extension") === extension) return;
+  }
+
+  const el = doc.createElementNS(NS, "Default");
+  el.setAttribute("Extension", extension);
+  el.setAttribute("ContentType", contentType);
+  doc.documentElement.appendChild(el);
+  zip.file(path, new XMLSerializer().serializeToString(doc));
+}
+
+function recolorSvg(svg: string, color: string): string {
+  const style = `<style>.iconFill{fill:${color};}</style>`;
+  let result: string;
+  if (/<style[\s\S]*?<\/style>/.test(svg)) {
+    result = svg.replace(/<style[\s\S]*?<\/style>/, style);
+  } else {
+    const idx = svg.indexOf(">", svg.indexOf("<svg"));
+    if (idx === -1) return svg;
+    result = svg.slice(0, idx + 1) + style + svg.slice(idx + 1);
+  }
+  return result.replace(
+    /<(path|rect|circle|polygon|ellipse)(\s[^>]*)?(\/?)>/g,
+    (m, tag, attrs, slash) =>
+      attrs && /\bclass=/.test(attrs)
+        ? m
+        : `<${tag} class="iconFill"${attrs || ""}${slash}>`
+  );
+}
+
+async function rasterizeSvgToPng(svg: string, width: number, height: number): Promise<string> {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Failed to create canvas 2D context for SVG rasterization");
+
+  const img = new Image();
+  const blob = new Blob([svg], { type: "image/svg+xml" });
+  const url = URL.createObjectURL(blob);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("Failed to load SVG for rasterization"));
+      img.src = url;
+    });
+    ctx.drawImage(img, 0, 0, width, height);
+    return canvas.toDataURL("image/png").split(",")[1]!;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // ============================================================================
 // Shape Lookup
 // ============================================================================
@@ -1463,6 +1549,192 @@ async function editSlideText(params: {
   }
 }
 
+// ------ search_icons ------
+
+async function searchIcons(params: {
+  query: string;
+  top?: number;
+}): Promise<ToolResult> {
+  try {
+    const top = Math.min(Math.max(1, params.top ?? 5), 20);
+    const res = await fetch(
+      `${ICONS_API_BASE}/api/icons/search?q=${encodeURIComponent(params.query)}&top=${top}`
+    );
+    if (!res.ok)
+      throw new Error(`Icon search error: ${res.status} ${res.statusText}`);
+
+    const data = (await res.json())[0];
+    if (!data?.MicrosoftContents) return { success: true, result: [] };
+
+    const results: Array<{
+      id: string;
+      description: string;
+      isMono: boolean;
+      contentTier: string;
+      searchScore: number;
+    }> = [];
+
+    for (const item of data.MicrosoftContents) {
+      iconCache.set(item.Id, item.Inline);
+      results.push({
+        id: item.Id,
+        description: item.Description,
+        isMono: item.IsMono,
+        contentTier: item.ContentTier,
+        searchScore: item.SearchScore,
+      });
+    }
+
+    return { success: true, result: results };
+  } catch (err: any) {
+    throw new Error(
+      JSON.stringify({ success: false, error: err.message })
+    );
+  }
+}
+
+// ------ insert_icon ------
+
+async function insertIcon(params: {
+  icon_id: string;
+  slide_index: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  description?: string;
+  color?: string;
+}): Promise<ToolResult> {
+  const svg = iconCache.get(params.icon_id);
+  if (!svg)
+    throw new Error(
+      `Icon "${params.icon_id}" not found in cache. Call search_icons first to populate the cache.`
+    );
+
+  const width = params.width ?? ICON_DEFAULT_SIZE;
+  const height = params.height ?? ICON_DEFAULT_SIZE;
+  const x = params.x ?? (SLIDE_WIDTH_PT - width) / 2;
+  const y = params.y ?? (SLIDE_HEIGHT_PT - height) / 2;
+  const descr = params.description ?? "";
+  const svgToUse = params.color ? recolorSvg(svg, params.color) : svg;
+  const pngBase64 = await rasterizeSvgToPng(svgToUse, ICON_PNG_SIZE, ICON_PNG_SIZE);
+
+  try {
+    await safeOfficeRun(
+      PowerPoint.run.bind(PowerPoint),
+      async (context) =>
+        withSlideZip(context, params.slide_index, async ({ zip, markDirty }) => {
+          const mediaCount =
+            Object.keys(zip.files).filter((f) => f.startsWith("ppt/media/")).length + 1;
+          const svgPath = `ppt/media/icon${mediaCount}.svg`;
+          const pngPath = `ppt/media/icon${mediaCount}.png`;
+
+          zip.file(svgPath, svgToUse);
+          zip.file(pngPath, pngBase64, { base64: true });
+          await registerContentType(zip, "svg", "image/svg+xml");
+          await registerContentType(zip, "png", "image/png");
+
+          const relsPath = "ppt/slides/_rels/slide1.xml.rels";
+          const relsXml =
+            (await zip.file(relsPath)?.async("string")) ??
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>';
+          const relsDoc = new DOMParser().parseFromString(relsXml, "text/xml");
+          const relsNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+          const imgType =
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
+          const rels = relsDoc.getElementsByTagName("Relationship");
+          let maxId = 0;
+          for (let i = 0; i < rels.length; i++) {
+            const id = rels[i].getAttribute("Id") ?? "";
+            const n = parseInt(id.replace(/\D/g, ""), 10);
+            if (!Number.isNaN(n) && n > maxId) maxId = n;
+          }
+          const rIdPng = `rId${maxId + 1}`;
+          const rIdSvg = `rId${maxId + 2}`;
+
+          const relPng = relsDoc.createElementNS(relsNs, "Relationship");
+          relPng.setAttribute("Id", rIdPng);
+          relPng.setAttribute("Type", imgType);
+          relPng.setAttribute("Target", `../media/icon${mediaCount}.png`);
+          relsDoc.documentElement.appendChild(relPng);
+
+          const relSvg = relsDoc.createElementNS(relsNs, "Relationship");
+          relSvg.setAttribute("Id", rIdSvg);
+          relSvg.setAttribute("Type", imgType);
+          relSvg.setAttribute("Target", `../media/icon${mediaCount}.svg`);
+          relsDoc.documentElement.appendChild(relSvg);
+          zip.file(relsPath, new XMLSerializer().serializeToString(relsDoc));
+
+          const slideXml = await zip.file("ppt/slides/slide1.xml")?.async("string");
+          if (!slideXml) throw new Error("Could not read slide XML");
+
+          const slideDoc = new DOMParser().parseFromString(slideXml, "text/xml");
+          const spTree = slideDoc.getElementsByTagNameNS(NS_PRESENTATION, "spTree")[0];
+          if (!spTree) throw new Error("Could not find <p:spTree> in slide XML");
+
+          let maxShapeId = 0;
+          const pCnvPr = slideDoc.getElementsByTagNameNS(NS_PRESENTATION, "cNvPr");
+          const aCnvPr = slideDoc.getElementsByTagNameNS(NS_DRAWING, "cNvPr");
+          for (const list of [pCnvPr, aCnvPr]) {
+            for (let i = 0; i < list.length; i++) {
+              const idAttr = list[i].getAttribute("id");
+              if (idAttr) {
+                const n = parseInt(idAttr, 10);
+                if (!Number.isNaN(n) && n > maxShapeId) maxShapeId = n;
+              }
+            }
+          }
+          const shapeId = maxShapeId + 1;
+
+          const offX = Math.round(x * EMU_PER_PT);
+          const offY = Math.round(y * EMU_PER_PT);
+          const extCx = Math.round(width * EMU_PER_PT);
+          const extCy = Math.round(height * EMU_PER_PT);
+
+          const picXml = `<p:pic
+        xmlns:p="${NS_PRESENTATION}"
+        xmlns:a="${NS_DRAWING}"
+        xmlns:r="${NS_RELATIONSHIPS}">
+        <p:nvPicPr>
+          <p:cNvPr id="${shapeId}" name="Graphic ${shapeId}" descr="${escapeXmlForAttr(descr)}"/>
+          <p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>
+          <p:nvPr/>
+        </p:nvPicPr>
+        <p:blipFill>
+          <a:blip r:embed="${rIdPng}">
+            <a:extLst>
+              <a:ext uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}">
+                <asvg:svgBlip xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main" r:embed="${rIdSvg}"/>
+              </a:ext>
+            </a:extLst>
+          </a:blip>
+          <a:stretch><a:fillRect/></a:stretch>
+        </p:blipFill>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="${offX}" y="${offY}"/>
+            <a:ext cx="${extCx}" cy="${extCy}"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        </p:spPr>
+      </p:pic>`;
+
+          const picDoc = new DOMParser().parseFromString(picXml, "text/xml");
+          spTree.appendChild(slideDoc.importNode(picDoc.documentElement, true));
+          zip.file("ppt/slides/slide1.xml", new XMLSerializer().serializeToString(slideDoc));
+          markDirty();
+        })
+    );
+
+    return { success: true, result: { inserted: true, icon_id: params.icon_id } };
+  } catch (err: any) {
+    const debugInfo = err.debugInfo || {};
+    throw new Error(
+      JSON.stringify({ success: false, error: err.message, ...debugInfo })
+    );
+  }
+}
+
 // ------ execute_office_js ------
 
 /**
@@ -1539,7 +1811,7 @@ async function executeOfficeJs(
 export function createToolHandlers() {
   return {
     screenshot_slide: screenshotSlide,
-    edit_slide_chart: editSlideXml,   // same implementation as edit_slide_xml
+    edit_slide_chart: editSlideXml,
     edit_slide_xml: editSlideXml,
     edit_slide_master: editSlideMaster,
     duplicate_slide: duplicateSlide,
@@ -1547,5 +1819,7 @@ export function createToolHandlers() {
     read_slide_text: readSlideText,
     edit_slide_text: editSlideText,
     execute_office_js: executeOfficeJs,
+    search_icons: searchIcons,
+    insert_icon: insertIcon,
   };
 }
