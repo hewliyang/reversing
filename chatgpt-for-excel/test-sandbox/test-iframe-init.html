@@ -1,0 +1,19 @@
+<!doctype html><html><body>
+<script type="module">
+  // Import the sandbox module - it auto-runs Hg() which sets up message listener
+  // But we also need to manually test the WASM initialization
+  try {
+    // Dynamic import of the sandbox module
+    const module = await import("../assets/sandbox-BAMHNVll.js");
+    console.log("[IFRAME] Module loaded, default export type:", typeof module.default);
+    
+    // The module auto-registers a message listener (Hg function)
+    // Let's also manually try to initialize QuickJS by sending messages through normal protocol
+    // Signal to parent that module loaded
+    window.__moduleLoaded = true;
+  } catch (e) {
+    console.error("[IFRAME] Module load error:", e.message, e.stack);
+    window.__moduleError = e.message;
+  }
+</script>
+</body></html>

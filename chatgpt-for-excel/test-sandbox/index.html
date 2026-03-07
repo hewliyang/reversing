@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Basispoints Sandbox E2E Test</title>
+  <style>
+    body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+    h1 { color: #0f0; font-size: 18px; }
+    .test { margin: 12px 0; padding: 8px; border-left: 3px solid #444; }
+    .test.pass { border-color: #0f0; }
+    .test.fail { border-color: #f00; }
+    .test.running { border-color: #ff0; }
+    .label { font-weight: bold; }
+    .pass .label { color: #0f0; }
+    .fail .label { color: #f00; }
+    .running .label { color: #ff0; }
+    pre { background: #111; padding: 8px; overflow-x: auto; margin: 4px 0; font-size: 12px; }
+    #spreadsheet { margin-top: 20px; }
+    table { border-collapse: collapse; }
+    td { border: 1px solid #444; padding: 4px 8px; min-width: 60px; font-size: 12px; }
+    td.header { background: #333; color: #aaa; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Basispoints Office.js Sandbox — E2E Test</h1>
+  <div id="output"></div>
+  <div id="spreadsheet"></div>
+
+<script type="module">
+
+// ═══════════════════════════════════════════════════════════════════
+// Protocol constants (matching officejs-sandbox-protocol-DHHFLCK9.js)
+// ═══════════════════════════════════════════════════════════════════
+
+const PROTOCOL_VERSION = 1;
+const MSG = {
+  BOOTSTRAP:     "bps.officejs-sandbox.bootstrap",
+  READY:         "bps.officejs-sandbox.ready",
+  RUN:           "bps.officejs-sandbox.run",
+  SYNC_REQUEST:  "bps.officejs-sandbox.sync_request",
+  SYNC_RESPONSE: "bps.officejs-sandbox.sync_response",
+  RESULT:        "bps.officejs-sandbox.result",
+  ERROR:         "bps.officejs-sandbox.error",
+};
+const REF_KEY = "__officejsRef";
+const DEFAULT_LIMITS = {
+  maxObjectIds: 256,
+  maxQueuedOperations: 256,
+  maxSerializedChars: 200000,
+  maxMatrixWriteCells: 10000,
+  timeoutMs: 20000,
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// Mock Excel API — a simple in-memory spreadsheet
+// ═══════════════════════════════════════════════════════════════════
+
+class MockWorksheet {
+  constructor(name) {
+    this.name = name;
+    this.id = `sheet-${name}`;
+    this._cells = {};  // "A1" -> value
+  }
+  getRange(address) { return new MockRange(this, address); }
+  getUsedRange(valuesOnly) { return new MockRange(this, "A1:Z100"); }
+  load() { return this; }
+}
+
+class MockRange {
+  constructor(sheet, address) {
+    this._sheet = sheet;
+    this.address = `${sheet.name}!${address}`;
+    this.addressLocal = address;
+    this._values = null;
+    this._formulas = null;
+    this._numberFormat = null;
+    this._rowCount = 0;
+    this._columnCount = 0;
+    this._parseAddress(address);
+  }
+
+  _parseAddress(addr) {
+    // Simple A1:B2 parser
+    const match = addr.match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/);
+    if (!match) { this._rowCount = 1; this._columnCount = 1; return; }
+    const c1 = this._colIndex(match[1]), r1 = parseInt(match[2]);
+    const c2 = match[3] ? this._colIndex(match[3]) : c1;
+    const r2 = match[4] ? parseInt(match[4]) : r1;
+    this._rowCount = r2 - r1 + 1;
+    this._columnCount = c2 - c1 + 1;
+    this._startCol = c1; this._startRow = r1;
+  }
+
+  _colIndex(s) {
+    let n = 0;
+    for (const ch of s) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n;
+  }
+
+  _colName(n) {
+    let s = "";
+    while (n > 0) { n--; s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26); }
+    return s;
+  }
+
+  get values() {
+    const result = [];
+    for (let r = 0; r < this._rowCount; r++) {
+      const row = [];
+      for (let c = 0; c < this._columnCount; c++) {
+        const key = `${this._colName(this._startCol + c)}${this._startRow + r}`;
+        row.push(this._sheet._cells[key] ?? "");
+      }
+      result.push(row);
+    }
+    return result;
+  }
+
+  set values(matrix) {
+    for (let r = 0; r < matrix.length; r++) {
+      for (let c = 0; c < matrix[r].length; c++) {
+        const key = `${this._colName(this._startCol + c)}${this._startRow + r}`;
+        this._sheet._cells[key] = matrix[r][c];
+      }
+    }
+    this._values = matrix;
+  }
+
+  get formulas() { return this.values; }
+  set formulas(v) { this.values = v; }
+
+  get numberFormat() {
+    return Array.from({length: this._rowCount}, () =>
+      Array.from({length: this._columnCount}, () => "General"));
+  }
+  set numberFormat(v) { this._numberFormat = v; }
+
+  get rowCount() { return this._rowCount; }
+  get columnCount() { return this._columnCount; }
+  get text() { return this.values.map(r => r.map(v => String(v))); }
+
+  load() { return this; }
+  getCell(row, col) {
+    const addr = `${this._colName(this._startCol + col)}${this._startRow + row}`;
+    return new MockRange(this._sheet, addr);
+  }
+}
+
+class MockWorksheetCollection {
+  constructor(sheets) { this._sheets = sheets; this.items = sheets; }
+  getItem(name) { return this._sheets.find(s => s.name === name) || this._sheets[0]; }
+  getActiveWorksheet() { return this._sheets[0]; }
+  load() { return this; }
+  get count() { return this._sheets.length; }
+}
+
+class MockWorkbook {
+  constructor() {
+    this.worksheets = new MockWorksheetCollection([
+      new MockWorksheet("Sheet1"),
+      new MockWorksheet("Data"),
+    ]);
+    // Pre-populate some data
+    const s = this.worksheets.getItem("Sheet1");
+    s._cells["A1"] = "Name";   s._cells["B1"] = "Score";  s._cells["C1"] = "Grade";
+    s._cells["A2"] = "Alice";  s._cells["B2"] = 95;       s._cells["C2"] = "A";
+    s._cells["A3"] = "Bob";    s._cells["B3"] = 82;       s._cells["C3"] = "B";
+    s._cells["A4"] = "Carol";  s._cells["B4"] = 91;       s._cells["C4"] = "A";
+    s._cells["A5"] = "Dave";   s._cells["B5"] = 67;       s._cells["C5"] = "D";
+  }
+  load() { return this; }
+}
+
+class MockRequestContext {
+  constructor() { this.workbook = new MockWorkbook(); }
+  async sync() { /* no-op, data is already in-memory */ }
+  load() { return this; }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Host-side Broker — resolves sync requests against mock Excel
+// ═══════════════════════════════════════════════════════════════════
+
+function createBroker(ctx) {
+  const definitions = new Map();
+  const resolved = new Map();
+
+  // Pre-seed root objects
+  resolved.set(1, ctx);      // id=1 = RequestContext
+  resolved.set(2, {});        // id=2 = Excel namespace (minimal mock)
+
+  function resolveObject(id) {
+    if (resolved.has(id)) return resolved.get(id);
+    const def = definitions.get(id);
+    if (!def) throw new Error(`Unknown object id ${id}`);
+    if (def.kind === "root") {
+      const obj = def.root === "ctx" ? ctx : {};
+      resolved.set(id, obj);
+      return obj;
+    }
+    if (def.kind === "property") {
+      const parent = resolveObject(def.parentId);
+      const val = parent[def.property];
+      resolved.set(id, val);
+      return val;
+    }
+    if (def.kind === "invoke") {
+      throw new Error(`Invocation result ${id} not yet produced`);
+    }
+  }
+
+  function resolveRefs(val) {
+    if (val && typeof val === "object" && REF_KEY in val) return resolveObject(val[REF_KEY]);
+    if (Array.isArray(val)) return val.map(resolveRefs);
+    if (val && typeof val === "object") {
+      const r = {};
+      for (const [k, v] of Object.entries(val)) r[k] = resolveRefs(v);
+      return r;
+    }
+    return val;
+  }
+
+  function safeSerialize(val, seen = new Set()) {
+    if (val === null || val === undefined) return null;
+    if (typeof val === "string" || typeof val === "boolean") return val;
+    if (typeof val === "number") return Number.isFinite(val) ? val : null;
+    if (Array.isArray(val)) return val.map(v => safeSerialize(v, seen));
+    if (typeof val === "function") return undefined;
+    if (typeof val !== "object") return String(val);
+    if (seen.has(val)) return "[Circular]";
+    seen.add(val);
+    // Try toJSON
+    if (typeof val.toJSON === "function") {
+      try { const j = val.toJSON(); if (j !== val) return safeSerialize(j, seen); } catch {}
+    }
+    const result = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (k.startsWith("_")) continue; // skip private
+      const s = safeSerialize(v, seen);
+      if (s !== undefined) result[k] = s;
+    }
+    return result;
+  }
+
+  async function handleSyncRequest(request) {
+    // Register definitions
+    for (const def of request.definitions) {
+      if (!definitions.has(def.id)) definitions.set(def.id, def);
+    }
+
+    // Execute commands
+    for (const cmd of request.commands) {
+      if (cmd.kind === "load") {
+        // In our mock, load is a no-op — data is always available
+        const target = resolveObject(cmd.targetId);
+        if (typeof target?.load === "function") target.load(cmd.spec);
+        continue;
+      }
+
+      if (cmd.kind === "set") {
+        const target = resolveObject(cmd.targetId);
+        const value = resolveRefs(cmd.value);
+        // Use the setter (important for MockRange.values)
+        const desc = findPropertyDescriptor(target, cmd.property);
+        if (desc && desc.set) {
+          desc.set.call(target, value);
+        } else {
+          target[cmd.property] = value;
+        }
+        continue;
+      }
+
+      if (cmd.kind === "invoke") {
+        const target = resolveObject(cmd.targetId);
+        const args = cmd.args.map(resolveRefs);
+        const fn = target[cmd.method];
+        if (typeof fn !== "function") throw new Error(`No method ${cmd.method} on object ${cmd.targetId}`);
+        const result = fn.apply(target, args);
+        resolved.set(cmd.resultId, result);
+      }
+    }
+
+    // "Sync" — no-op for mock
+    // Build snapshots
+    const snapshots = {};
+    for (const [id, def] of definitions.entries()) {
+      if (def.kind === "root") continue;
+      const obj = resolved.has(id) ? resolved.get(id) : undefined;
+      if (obj === undefined) continue;
+      const serialized = safeSerialize(obj);
+      if (serialized !== undefined) snapshots[String(id)] = serialized;
+    }
+
+    return { requestId: request.requestId, snapshots };
+  }
+
+  return { handleSyncRequest };
+}
+
+function findPropertyDescriptor(obj, prop) {
+  let current = obj;
+  while (current) {
+    const desc = Object.getOwnPropertyDescriptor(current, prop);
+    if (desc) return desc;
+    current = Object.getPrototypeOf(current);
+  }
+  return undefined;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Sandbox Runner — creates iframe, drives the protocol
+// ═══════════════════════════════════════════════════════════════════
+
+function runInSandbox(script, ctx, { destructive = true, limits = DEFAULT_LIMITS } = {}) {
+  return new Promise((resolve, reject) => {
+    const broker = createBroker(ctx);
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("sandbox", "allow-scripts");
+    iframe.style.display = "none";
+
+    const channel = new MessageChannel();
+    const invocationId = crypto.randomUUID();
+    const nonce = crypto.randomUUID();
+    let settled = false;
+    let timeoutId;
+
+    function cleanup() {
+      clearTimeout(timeoutId);
+      channel.port1.removeEventListener("message", onMessage);
+      try { channel.port1.close(); } catch {}
+      try { channel.port2.close(); } catch {}
+      iframe.remove();
+    }
+
+    function fail(msg) {
+      if (settled) return;
+      settled = true; cleanup(); reject(new Error(msg));
+    }
+
+    function succeed(result) {
+      if (settled) return;
+      settled = true; cleanup(); resolve(result);
+    }
+
+    function onMessage(event) {
+      const msg = event.data;
+      if (!msg || typeof msg !== "object") return;
+
+      // READY → send RUN
+      if (msg.type === MSG.READY) {
+        if (msg.invocationId !== invocationId || msg.nonce !== nonce) {
+          fail("Wrong identity on READY"); return;
+        }
+        channel.port1.postMessage({
+          type: MSG.RUN,
+          protocolVersion: PROTOCOL_VERSION,
+          invocationId, nonce, script, limits,
+        });
+        return;
+      }
+
+      // SYNC_REQUEST → process and respond
+      if (msg.type === MSG.SYNC_REQUEST) {
+        if (msg.invocationId !== invocationId || msg.nonce !== nonce) {
+          fail("Wrong identity on SYNC_REQUEST"); return;
+        }
+        broker.handleSyncRequest(msg.payload).then(
+          (response) => {
+            channel.port1.postMessage({
+              type: MSG.SYNC_RESPONSE,
+              protocolVersion: PROTOCOL_VERSION,
+              invocationId, nonce,
+              payload: response,
+            });
+          },
+          (error) => fail(`Broker error: ${error.message}`)
+        );
+        return;
+      }
+
+      // RESULT
+      if (msg.type === MSG.RESULT) {
+        succeed({ result: msg.result, logs: msg.logs || [] });
+        return;
+      }
+
+      // ERROR
+      if (msg.type === MSG.ERROR) {
+        fail(`Sandbox error: ${msg.error}\nLogs: ${JSON.stringify(msg.logs)}`);
+        return;
+      }
+    }
+
+    channel.port1.addEventListener("message", onMessage);
+    channel.port1.start();
+
+    iframe.addEventListener("load", () => {
+      const cw = iframe.contentWindow;
+      if (!cw) { fail("No contentWindow"); return; }
+      cw.postMessage(
+        { type: MSG.BOOTSTRAP, protocolVersion: PROTOCOL_VERSION, invocationId, nonce },
+        "*",
+        [channel.port2]
+      );
+    });
+
+    iframe.addEventListener("error", () => fail("Iframe load error"));
+    iframe.src = "/sandbox/";
+    document.body.appendChild(iframe);
+
+    timeoutId = setTimeout(() => fail(`Timeout after ${limits.timeoutMs}ms`), limits.timeoutMs);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Test Harness
+// ═══════════════════════════════════════════════════════════════════
+
+const output = document.getElementById("output");
+const spreadsheet = document.getElementById("spreadsheet");
+
+function log(html) {
+  output.innerHTML += html;
+}
+
+async function runTest(name, script, validate) {
+  const div = document.createElement("div");
+  div.className = "test running";
+  div.innerHTML = `<span class="label">⏳ ${name}</span>`;
+  output.appendChild(div);
+
+  const ctx = new MockRequestContext();
+  try {
+    const result = await runInSandbox(script, ctx);
+    const passed = validate(result, ctx);
+    div.className = `test ${passed ? "pass" : "fail"}`;
+    div.innerHTML = `<span class="label">${passed ? "✅" : "❌"} ${name}</span>` +
+      `<pre>Result: ${JSON.stringify(result.result, null, 2)}</pre>` +
+      (result.logs.length > 0 ? `<pre>Logs:\n${result.logs.map(l => `[${l.level}] ${l.message}`).join("\n")}</pre>` : "");
+    return passed;
+  } catch (err) {
+    div.className = "test fail";
+    div.innerHTML = `<span class="label">❌ ${name}</span><pre>${err.message}</pre>`;
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Tests
+// ═══════════════════════════════════════════════════════════════════
+
+let passed = 0, failed = 0;
+
+async function run(name, script, validate) {
+  (await runTest(name, script, validate)) ? passed++ : failed++;
+}
+
+async function main() {
+  log("<p>Running tests against real QuickJS WASM sandbox...</p>");
+
+  // Test 1: Simple return value
+  await run(
+    "1. Simple return value",
+    `return 42;`,
+    (r) => r.result === 42
+  );
+
+  // Test 2: Console capture
+  await run(
+    "2. Console.log capture",
+    `console.log("hello from sandbox");
+     console.warn("a warning");
+     return "done";`,
+    (r) => r.logs.length === 2 &&
+           r.logs[0].message === "hello from sandbox" &&
+           r.logs[1].level === "warn"
+  );
+
+  // Test 3: Read spreadsheet data
+  await run(
+    "3. Read cell values via ctx.sync()",
+    `const sheet = ctx.workbook.worksheets.getItem("Sheet1");
+     const range = sheet.getRange("A1:C1");
+     range.load("values");
+     await ctx.sync();
+     return range.values;`,
+    (r) => {
+      const v = r.result;
+      return Array.isArray(v) && v[0][0] === "Name" && v[0][1] === "Score" && v[0][2] === "Grade";
+    }
+  );
+
+  // Test 4: Read multiple rows
+  await run(
+    "4. Read multi-row range",
+    `const sheet = ctx.workbook.worksheets.getItem("Sheet1");
+     const range = sheet.getRange("A1:B5");
+     range.load("values");
+     await ctx.sync();
+     const names = range.values.map(r => r[0]);
+     console.log("names:", JSON.stringify(names));
+     return names;`,
+    (r) => {
+      const names = r.result;
+      return names.length === 5 && names[0] === "Name" && names[1] === "Alice" && names[4] === "Dave";
+    }
+  );
+
+  // Test 5: Write values
+  await run(
+    "5. Write values to cells",
+    `const sheet = ctx.workbook.worksheets.getItem("Sheet1");
+     const range = sheet.getRange("D1:D3");
+     range.values = [["Total"], [100], [200]];
+     await ctx.sync();
+     // Read back
+     const check = sheet.getRange("D1:D3");
+     check.load("values");
+     await ctx.sync();
+     return check.values;`,
+    (r, ctx) => {
+      const v = r.result;
+      return v[0][0] === "Total" && v[1][0] === 100 && v[2][0] === 200;
+    }
+  );
+
+  // Test 6: Computation in sandbox
+  await run(
+    "6. Compute in sandbox and write results",
+    `const sheet = ctx.workbook.worksheets.getItem("Sheet1");
+     const scores = sheet.getRange("B2:B5");
+     scores.load("values");
+     await ctx.sync();
+     const vals = scores.values.map(r => r[0]);
+     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+     console.log("Average score:", avg);
+     const out = sheet.getRange("E1:E2");
+     out.values = [["Average"], [avg]];
+     await ctx.sync();
+     return avg;`,
+    (r) => r.result === 83.75
+  );
+
+  // Test 7: No network access
+  await run(
+    "7. fetch() is undefined (no network access)",
+    `const hasFetch = typeof fetch !== "undefined";
+     const hasXHR = typeof XMLHttpRequest !== "undefined";
+     const hasWS = typeof WebSocket !== "undefined";
+     console.log("fetch:", hasFetch, "XHR:", hasXHR, "WS:", hasWS);
+     return { fetch: hasFetch, xhr: hasXHR, ws: hasWS };`,
+    (r) => r.result.fetch === false && r.result.xhr === false && r.result.ws === false
+  );
+
+  // Test 8: No DOM access
+  await run(
+    "8. No DOM APIs (window/document undefined)",
+    `const hasWindow = typeof window !== "undefined";
+     const hasDocument = typeof document !== "undefined";
+     const hasNavigator = typeof navigator !== "undefined";
+     return { window: hasWindow, document: hasDocument, navigator: hasNavigator };`,
+    (r) => r.result.window === false && r.result.document === false && r.result.navigator === false
+  );
+
+  // Test 9: No setTimeout
+  await run(
+    "9. No setTimeout/setInterval",
+    `const hasTimeout = typeof setTimeout !== "undefined";
+     const hasInterval = typeof setInterval !== "undefined";
+     return { setTimeout: hasTimeout, setInterval: hasInterval };`,
+    (r) => r.result.setTimeout === false && r.result.setInterval === false
+  );
+
+  // Test 10: Error handling
+  await run(
+    "10. Runtime errors are caught and reported",
+    `const x = null;
+     try {
+       x.foo;
+       return "should not reach";
+     } catch (e) {
+       console.error("caught:", e.message);
+       return "caught";
+     }`,
+    (r) => r.result === "caught" && r.logs.length === 1 && r.logs[0].level === "error"
+  );
+
+  // Summary
+  const total = passed + failed;
+  log(`<p style="margin-top: 20px; font-size: 16px; color: ${failed === 0 ? "#0f0" : "#f00"}">` +
+      `${passed}/${total} tests passed</p>`);
+
+  // Show final spreadsheet state
+  renderSpreadsheet();
+}
+
+function renderSpreadsheet() {
+  const ctx = new MockRequestContext();
+  const sheet = ctx.workbook.worksheets.getItem("Sheet1");
+  const cols = "ABCDE";
+  let html = "<h3 style='color:#888'>Mock Spreadsheet (Sheet1)</h3><table>";
+  html += "<tr><td class='header'></td>";
+  for (const c of cols) html += `<td class='header'>${c}</td>`;
+  html += "</tr>";
+  for (let r = 1; r <= 5; r++) {
+    html += `<tr><td class='header'>${r}</td>`;
+    for (const c of cols) html += `<td>${sheet._cells[`${c}${r}`] ?? ""}</td>`;
+    html += "</tr>";
+  }
+  html += "</table>";
+  spreadsheet.innerHTML = html;
+}
+
+main();
+</script>
+</body>
+</html>

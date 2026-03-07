@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+<head><title>Direct QuickJS Test</title></head>
+<body>
+<pre id="out"></pre>
+<script type="module">
+const out = document.getElementById("out");
+function log(s) { out.textContent += s + "\n"; console.log(s); }
+
+try {
+  log("Importing sandbox module...");
+  const mod = await import('/assets/sandbox-BAMHNVll.js');
+  log("Module imported. default type: " + typeof mod.default);
+
+  // The module default export is the result of rg() which executes the factory.
+  // The factory defines Qg (guest runtime), Bg (script wrapper), Lg (run program),
+  // Hg (bootstrap listener) — all as local closures.
+  // Hg() is called at the end, setting up window.message listener.
+  // We can't access Lg directly, but we can simulate the protocol.
+
+  // Instead, let's create our own iframe and test the full loop
+  log("\nCreating sandbox iframe...");
+  
+  const iframe = document.createElement("iframe");
+  iframe.style.display = "none";
+  const channel = new MessageChannel();
+  const iid = crypto.randomUUID();
+  const nonce = crypto.randomUUID();
+
+  const result = await new Promise((resolve) => {
+    channel.port1.addEventListener("message", (ev) => {
+      const m = ev.data;
+      if (!m) return;
+      log(`[PORT] ${m.type} ${JSON.stringify(m).slice(0, 200)}`);
+
+      if (m.type === "bps.officejs-sandbox.ready") {
+        log("Sending RUN with simple script...");
+        channel.port1.postMessage({
+          type: "bps.officejs-sandbox.run",
+          protocolVersion: 1, invocationId: iid, nonce,
+          script: "return 1 + 1;",
+          limits: { maxObjectIds: 256, maxQueuedOperations: 256, maxSerializedChars: 200000, maxMatrixWriteCells: 10000, timeoutMs: 20000 },
+        });
+      }
+
+      if (m.type === "bps.officejs-sandbox.result") {
+        log("✅ SUCCESS: " + JSON.stringify(m.result));
+        resolve({ ok: true, result: m.result, logs: m.logs });
+      }
+
+      if (m.type === "bps.officejs-sandbox.error") {
+        log("❌ ERROR: " + m.error);
+        resolve({ ok: false, error: m.error });
+      }
+    });
+    channel.port1.start();
+
+    iframe.addEventListener("load", () => {
+      log("Iframe loaded, posting BOOTSTRAP...");
+      iframe.contentWindow.postMessage(
+        { type: "bps.officejs-sandbox.bootstrap", protocolVersion: 1, invocationId: iid, nonce },
+        "*", [channel.port2]
+      );
+    });
+
+    iframe.src = "/sandbox/";
+    document.body.appendChild(iframe);
+
+    setTimeout(() => {
+      log("⏱️ TIMEOUT after 30s");
+      resolve({ ok: false, timeout: true });
+    }, 30000);
+  });
+
+  log("\nFinal: " + JSON.stringify(result, null, 2));
+} catch (e) {
+  log("ERROR: " + e.message + "\n" + e.stack);
+}
+</script>
+</body>
+</html>
