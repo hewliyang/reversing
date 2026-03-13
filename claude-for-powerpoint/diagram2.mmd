@@ -1,0 +1,32 @@
+sequenceDiagram
+    participant E as Excel Agent (excel-a1b2c3)
+    participant S as Conductor (/v2/conductor/user-id)
+    participant P as PowerPoint Agent (powerpoint-0e0009)
+
+    Note over E,P: 1. Registration (eager, on add-in startup)
+    E->>S: register { agentId, schema, oauth_token, peer_retention: 60 }
+    S-->>E: conductor_connected { server_settings }
+    S-->>E: conductor_event[] (replay: true)
+    S-->>E: conductor_replay_complete
+    S->>P: conductor_agent_online { agentId: "excel-a1b2c3", schema }
+
+    Note over E,P: 2. Transcript replication (periodic stream events)
+    E->>S: stream { messages: [...], total_messages: 42 }
+    S->>P: conductor_event { event_type: "stream" }
+    Note over P: Appended → /agents/excel-a1b2c3/transcript.jsonl
+
+    Note over E,P: 3. File broadcast (data plane)
+    E->>E: conductor.writeFile("data.csv", csvString)
+    E->>S: { type: "file", filename: "data.csv", data: "..." }
+    S->>P: conductor_event { event_type: "file" }
+    Note over P: Mirrored → /agents/excel-a1b2c3/files/data.csv
+
+    Note over E,P: 4. Task dispatch (control plane, fire-and-forget)
+    E->>S: conductor_send_message { to: "powerpoint-0e0009" }
+    S->>P: conductor_message { from: "excel-a1b2c3", message: "Make a chart" }
+
+    Note over P: If busy → FIFO enqueue, process as new prompt when idle
+
+    P->>P: conductor.readFile("excel-a1b2c3", "data.csv")
+    Note over P: Local cache read — no network round-trip
+    P->>P: Build chart via Office.js + OOXML

@@ -1,0 +1,29 @@
+{
+  "theme": "dark",
+  "themeVariables": {
+    "primaryColor": "#1a1a2e",
+    "primaryTextColor": "#eee",
+    "lineColor": "#e94560",
+    "secondaryColor": "#16213e",
+    "tertiaryColor": "#0f3460",
+    "noteBkgColor": "#2a2a4a",
+    "noteTextColor": "#eee",
+    "noteBorderColor": "#e94560",
+    "signalColor": "#ccc",
+    "signalTextColor": "#eee",
+    "labelBoxBkgColor": "#2a2a4a",
+    "labelTextColor": "#eee",
+    "actorBkg": "#1a1a2e",
+    "actorTextColor": "#eee",
+    "actorBorder": "#e94560",
+    "activationBkgColor": "#0f3460",
+    "activationBorderColor": "#e94560",
+    "sequenceNumberColor": "#e94560"
+  },
+  "sequence": {
+    "mirrorActors": false,
+    "actorMargin": 120,
+    "noteMargin": 10,
+    "messageMargin": 30
+  }
+}

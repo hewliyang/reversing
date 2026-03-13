@@ -1,0 +1,22 @@
+graph LR
+    subgraph Control["Control Plane"]
+        SM["send_message\nshort NL instruction"]
+    end
+
+    subgraph Data["Data Plane"]
+        WF["conductor.writeFile()\nbroadcast to all peers"]
+        RF["conductor.readFile()\nlocal cache lookup"]
+        LF["conductor.listFiles()\ndiscover peer artifacts"]
+    end
+
+    subgraph VBash["Virtual Bash (read-only)"]
+        PEEK["head -5 /agents/.../files/data.csv\npeek at structure"]
+        GREP["grep revenue /agents/.../transcript.jsonl\nsearch peer history"]
+    end
+
+    SM -->|"tells agent WHAT to do"| Data
+    WF -->|"shares the actual DATA"| RF
+
+    style Control fill:#e94560,stroke:#fff,color:#fff
+    style Data fill:#0f3460,stroke:#fff,color:#eee
+    style VBash fill:#162447,stroke:#e94560,color:#eee

@@ -1,0 +1,37 @@
+graph TB
+    E1["🟩 Excel Agent 1<br/>excel-a1b2c3"]
+    P["🟧 PowerPoint Agent<br/>powerpoint-0e0009"]
+    E2["🟩 Excel Agent 2<br/>excel-ff9d01"]
+
+    E1 <-->|WebSocket| S
+    P <-->|WebSocket| S
+    E2 <-->|WebSocket| S
+
+    S["🔀 Conductor Server<br/>/v2/conductor/&lt;user-id&gt;<br/>───────────────────<br/>Agent Registry • Presence<br/>Message Router • Fanout<br/>Replay Buffer 60s TTL"]
+
+    S -->|"stream / file / status<br/>events fanned out"| VFS1
+    S -->|"stream / file / status<br/>events fanned out"| VFS2
+    S -->|"stream / file / status<br/>events fanned out"| VFS3
+
+    subgraph L1["Excel Agent 1 — local replica"]
+        VFS1[("📁 /agents/<br/>├ powerpoint-0e0009/<br/>│ ├ transcript.jsonl<br/>│ ├ status.json<br/>│ └ files/*<br/>└ excel-ff9d01/<br/>  ├ transcript.jsonl<br/>  ├ status.json<br/>  └ files/*")]
+    end
+
+    subgraph L2["PowerPoint Agent — local replica"]
+        VFS2[("📁 /agents/<br/>├ excel-a1b2c3/<br/>│ ├ transcript.jsonl<br/>│ ├ status.json<br/>│ └ files/*<br/>└ excel-ff9d01/<br/>  ├ transcript.jsonl<br/>  ├ status.json<br/>  └ files/*")]
+    end
+
+    subgraph L3["Excel Agent 2 — local replica"]
+        VFS3[("📁 /agents/<br/>├ excel-a1b2c3/<br/>│ ├ transcript.jsonl<br/>│ ├ status.json<br/>│ └ files/*<br/>└ powerpoint-0e0009/<br/>  ├ transcript.jsonl<br/>  ├ status.json<br/>  └ files/*")]
+    end
+
+    style E1 fill:#217346,stroke:#217346,color:#fff
+    style P fill:#B7472A,stroke:#B7472A,color:#fff
+    style E2 fill:#217346,stroke:#217346,color:#fff
+    style S fill:#1a1a2e,stroke:#e94560,color:#eee
+    style VFS1 fill:#162447,stroke:#53a8b6,color:#eee
+    style VFS2 fill:#162447,stroke:#53a8b6,color:#eee
+    style VFS3 fill:#162447,stroke:#53a8b6,color:#eee
+    style L1 fill:#0d1117,stroke:#217346,color:#8bd5a0
+    style L2 fill:#0d1117,stroke:#B7472A,color:#e8a090
+    style L3 fill:#0d1117,stroke:#217346,color:#8bd5a0

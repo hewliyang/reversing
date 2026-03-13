@@ -1,0 +1,463 @@
+[
+  {
+    "type": "code_execution_20250825",
+    "name": "code_execution"
+  },
+  {
+    "type": "web_search_20250305",
+    "name": "web_search"
+  },
+  {
+    "type": "custom",
+    "name": "execute_office_js",
+    "description": "Execute Office.js JavaScript code to interact with the PowerPoint document. The code receives a context parameter and runs inside PowerPoint.run(). Use this for any document operations.\n\nA `conductor` global is available for sharing files with other agents:\n  `conductor.writeFile(\"data.json\", jsonString)`  — broadcast a file to all connected agents\n  `conductor.readFile(\"excel-abc\", \"data.json\")`  — read another agent's file\n  `conductor.listFiles(\"excel-abc\")`              — list an agent's shared files\n\nLARGE DATA: When you need to send data to another agent (cell values, tables, extracted content, XML, etc.), write it to a conductor file instead of putting it in the send_message text. Use `execute_office_js` to read the data and call `conductor.writeFile()` with a descriptive filename (e.g. data.json, table.txt, chart.xml). The file is broadcast immediately to all peers and visible in their virtual filesystem. Then call send_message with a short message saying what you want done. Do NOT include instructions on how to read the file; the receiving agent can access it directly.\n\nUSING RECEIVED FILES: When a peer has shared a file, read AND use it inside the SAME code block. NEVER `return conductor.readFile(...)` — that dumps the entire file into your context.\n\nWORKFLOW: peek at structure via bash `head -5 /agents/<id>/files/<name>`, then come straight here and write the full processing code. The header line is enough — you do NOT need to see every row in your context.\n\n  // ✅ GOOD: after bash head -5 showed \"Country,Region,Rate,Year\"\n  const raw = conductor.readFile(\"desktop-41c\", \"data.csv\");\n  const lines = raw.trim().split(\"\\n\");\n  const rows = lines.slice(1).map(r => r.split(\",\"));\n  const sheet = context.workbook.worksheets.add(\"Imported\");\n  sheet.getRangeByIndexes(0, 0, rows.length, rows[0].length).values = rows;\n  await context.sync();\n  return { rowsWritten: rows.length };\n\n  // ❌ BAD: read-only — whole file leaks into context\n  return conductor.readFile(\"desktop-41c\", \"data.csv\");\n\nIf structure is genuinely unclear after `head`, return a small probe (e.g. `return { keys: Object.keys(JSON.parse(raw)), len: raw.length }`) — never the full contents.\n\nA `blobs` global provides read-only access to skill-bundled files (populated automatically by `read_skill`):\n  `blobs.getText(\"name\")`   — decoded UTF-8 string or null (for .csv, .json, .html, code files)\n  `blobs.get(\"name\")`       — Uint8Array or null (raw bytes)\n  `blobs.getBase64(\"name\")` — base64 string or null (use with JSZip: `JSZip.loadAsync(b64, {base64: true})`)\n  `blobs.has(\"name\")`       — check if blob exists\n  `blobs.keys()`            — list stored blob names\nThe `blobs` global is for SKILL files only. For user-uploaded files (`container_upload`), use `code_execution` (Python) — see the File Uploads section of the system prompt.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Async function body that receives 'context: PowerPoint.RequestContext'. Must call context.sync() to execute batched operations and load() to read properties. Return JSON-serializable results."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["code"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "store_blob",
+    "description": "Fetch raw bytes from the Files API into the local blob store. ONLY use when you need the raw binary in the browser (e.g., copying OOXML parts from an uploaded .pptx template via JSZip in edit_slide_xml). For parsing tabular/document data (.xlsx, .pdf, .docx, .csv), use code_execution instead — browser JS has no xlsx/pdf parser. Skill files are loaded automatically by read_skill — do NOT call store_blob for skills.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "string",
+          "description": "Files API file ID"
+        },
+        "blob_name": {
+          "type": "string",
+          "description": "Name to access this blob via blobs.getText(name), blobs.getBase64(name), or blobs.get(name)"
+        }
+      },
+      "required": ["file_id", "blob_name"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "list_slide_shapes",
+    "description": "List all shapes on a slide with their IDs, names, types, and positions. Call this to discover shape IDs before using read_slide_text or edit_slide_text — always use the shape ID (stable, locale-independent), never guess shape names.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "slide_index": {
+          "type": "number",
+          "description": "0-based slide index (user's slide 1 = index 0, slide 3 = index 2)"
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["slide_index"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "edit_slide_chart",
+    "description": "Add or edit charts in a PowerPoint slide by manipulating raw OOXML. Always use this for data visualizations — never approximate charts with geometric shapes. When receiving chart data from another agent, use conductor.readFile(\"agent-id\", \"chart.xml\") to read the chart XML and write it into the slide in a single tool call — never call this tool just to read chart files, as that bloats the context window with large XML.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "slide_index": {
+          "type": "number",
+          "description": "0-based slide index (user's slide 1 = index 0, slide 3 = index 2)"
+        },
+        "code": {
+          "type": "string",
+          "description": "Async function body receiving { zip, markDirty }. zip is a JSZip archive of the slide. Call markDirty() if you modified files. An escapeXml(text) global is available to escape special characters for XML text content."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["slide_index", "code"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "edit_slide_master",
+    "description": "Edit slide master and layouts via OOXML — set backgrounds, decorative elements (accent lines, dividers, borders), branding shapes, fonts, theme colors, and placeholders. Use this for any visual element that should appear on all slides.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Async function body receiving { zip, markDirty }. zip is a JSZip archive containing the full PPTX structure including ppt/slideMasters/ and ppt/slideLayouts/. Call markDirty() if you modified files. An escapeXml(text) global is available to escape special characters for XML text content."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["code"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "edit_slide_xml",
+    "description": "Edit raw OOXML of a PowerPoint slide — use for advanced formatting, custom XML manipulation, or anything not covered by other slide tools. IMPORTANT: When embedding user-facing text in XML, use the escapeXml(text) global to escape special characters (& → &amp;, < → &lt;, etc.) to prevent broken XML.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "slide_index": {
+          "type": "number",
+          "description": "0-based slide index (user's slide 1 = index 0, slide 3 = index 2)"
+        },
+        "code": {
+          "type": "string",
+          "description": "Async function body receiving { zip, markDirty }. zip is a JSZip archive of the slide. Call markDirty() if you modified files. An escapeXml(text) global is available to escape &, <, >, \", ' for safe embedding in XML text content."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["slide_index", "code"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "duplicate_slide",
+    "description": "Duplicate a slide in the presentation. The copy is inserted immediately after the original slide.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "slide_index": {
+          "type": "number",
+          "description": "0-based slide index (user's slide 1 = index 0, slide 3 = index 2)"
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["slide_index"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "verify_slides",
+    "description": "Verify all slides for overlapping shapes, out-of-bounds positioning, and unused placeholders. Returns structured results per slide. Each shape entry includes an `id` field — use these IDs with read_slide_text and edit_slide_text instead of shape names.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "type": "custom",
+    "name": "read_slide_text",
+    "description": "Read the raw OOXML paragraph XML from a shape's text body. Returns the <a:p> elements as a string. Use this to inspect existing text content, formatting, bullets, and styles before editing.\n\nThe returned XML uses DrawingML namespaces (a: prefix). Key elements:\n- <a:p> = paragraph, <a:r> = text run, <a:t> = text content\n- <a:rPr> = run properties (b=\"1\" bold, i=\"1\" italic, sz=\"1000\" font size in hundredths of pt)\n- <a:pPr> = paragraph properties (algn=\"ctr\", lvl=\"1\" indent level)\n- <a:buChar char=\"•\"/> = bullet character, <a:buAutoNum type=\"arabicPeriod\"/> = numbered list\n- <a:buNone/> = no bullet, <a:buFont typeface=\"Wingdings\"/> = bullet font\n- <a:solidFill><a:srgbClr val=\"FF0000\"/></a:solidFill> = explicit color\n- <a:solidFill><a:schemeClr val=\"tx2\"/></a:solidFill> = theme color\n- <a:latin typeface=\"Calibri\"/> = font family\n- <a:lnSpc><a:spcPts val=\"1400\"/></a:lnSpc> = line spacing (hundredths of pt)\n- <a:spcBef>/<a:spcAft> = space before/after paragraph\n- <a:hlinkClick r:id=\"rId2\"/> = hyperlink inside <a:rPr>\n\nExample output for a shape with a title + bulleted content with theme colors and line spacing:\n\n<a:p>\n  <a:pPr marL=\"0\" indent=\"0\">\n    <a:lnSpc><a:spcPts val=\"1400\"/></a:lnSpc>\n    <a:spcBef><a:spcPts val=\"300\"/></a:spcBef>\n    <a:spcAft><a:spcPts val=\"300\"/></a:spcAft>\n    <a:buNone/>\n  </a:pPr>\n  <a:r>\n    <a:rPr lang=\"en-US\" sz=\"1000\" dirty=\"0\">\n      <a:solidFill><a:schemeClr val=\"tx2\"/></a:solidFill>\n    </a:rPr>\n    <a:t>Headquartered in Beaverton, OR</a:t>\n  </a:r>\n</a:p>\n<a:p>\n  <a:pPr lvl=\"1\">\n    <a:lnSpc><a:spcPts val=\"1400\"/></a:lnSpc>\n    <a:spcBef><a:spcPts val=\"300\"/></a:spcBef>\n    <a:spcAft><a:spcPts val=\"300\"/></a:spcAft>\n  </a:pPr>\n  <a:r>\n    <a:rPr lang=\"en-US\" sz=\"1000\" dirty=\"0\">\n      <a:solidFill><a:schemeClr val=\"tx2\"/></a:solidFill>\n    </a:rPr>\n    <a:t>Operates three iconic brands: </a:t>\n  </a:r>\n  <a:r>\n    <a:rPr lang=\"en-US\" sz=\"1000\" b=\"1\" dirty=\"0\">\n      <a:solidFill><a:schemeClr val=\"tx2\"/></a:solidFill>\n    </a:rPr>\n    <a:t>Nike</a:t>\n  </a:r>\n  <a:r>\n    <a:rPr lang=\"en-US\" sz=\"1000\" dirty=\"0\">\n      <a:solidFill><a:schemeClr val=\"tx2\"/></a:solidFill>\n    </a:rPr>\n    <a:t>, </a:t>\n  </a:r>\n  <a:r>\n    <a:rPr lang=\"en-US\" sz=\"1000\" b=\"1\" dirty=\"0\">\n      <a:solidFill><a:schemeClr val=\"tx2\"/></a:solidFill>\n    </a:rPr>\n    <a:t>Jordan</a:t>\n  </a:r>\n  <a:r>\n    <a:rPr lang=\"en-US\" sz=\"1000\" dirty=\"0\">\n      <a:solidFill><a:schemeClr val=\"tx2\"/></a:solidFill>\n    </a:rPr>\n    <a:t> and </a:t>\n  </a:r>\n  <a:r>\n    <a:rPr lang=\"en-US\" sz=\"1000\" b=\"1\" dirty=\"0\">\n      <a:solidFill><a:schemeClr val=\"tx2\"/></a:solidFill>\n    </a:rPr>\n    <a:t>Converse</a:t>\n  </a:r>\n</a:p>",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "slide_index": {
+          "type": "number",
+          "description": "0-based slide index (user's slide 1 = index 0, slide 3 = index 2)"
+        },
+        "shape_id": {
+          "type": "string",
+          "description": "Shape ID from list_slide_shapes output (e.g., \"20\"). Stable and locale-independent."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["slide_index", "shape_id"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "verify_slide_visual",
+    "description": "Visually verify a slide using a fresh-context AI reviewer. Takes a screenshot and sends it to an independent reviewer with no knowledge of the conversation, eliminating confirmation bias. Returns objective issues found.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "slide_index": {
+          "type": "number",
+          "description": "0-based slide index to verify"
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["slide_index"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "edit_slide_text",
+    "description": "Replace the paragraph content of a shape with raw OOXML <a:p> XML. The tool preserves the shape's <a:bodyPr> and <a:lstStyle>. You only provide the <a:p> elements. See the Text Formatting DOs and DON'Ts in the system prompt for editing rules.\n\nOOXML quick reference:\n- Font size: sz in hundredths of a point (sz=\"2800\" = 28pt, sz=\"1000\" = 10pt)\n- Bold: b=\"1\", Italic: i=\"1\", Underline: u=\"sng\" on <a:rPr>\n- Color: <a:solidFill><a:srgbClr val=\"FF0000\"/></a:solidFill> or <a:solidFill><a:schemeClr val=\"tx2\"/></a:solidFill>\n- Font: <a:latin typeface=\"Calibri\"/> inside <a:rPr>\n- Alignment: algn=\"l|ctr|r|just\" on <a:pPr>\n- Bullet char: <a:buFont typeface=\"Arial\"/><a:buChar char=\"•\"/> inside <a:pPr>\n- Numbered: <a:buAutoNum type=\"arabicPeriod\"/> inside <a:pPr>\n- No bullet: <a:buNone/> inside <a:pPr>\n- Indent level: lvl is 0-based. Top-level bullets = lvl=\"0\" or omit lvl (default is 0). Sub-bullets = lvl=\"1\". Headers are NOT a \"level\" — they are level 0 with <a:buNone/>\n- Hanging indent: marL=\"228600\" indent=\"-228600\" on <a:pPr>\n- Line spacing: <a:lnSpc><a:spcPts val=\"1400\"/></a:lnSpc> inside <a:pPr>\n- Space before/after: <a:spcBef><a:spcPts val=\"300\"/></a:spcBef> inside <a:pPr>\n- Always include lang=\"en-US\" dirty=\"0\" on <a:rPr>\n\nTop-level bullet paragraph (use when adding bullets — do NOT use <a:buNone/> or lvl=\"1\" for regular bullets):\n<a:p><a:pPr><a:buFont typeface=\"Arial\"/><a:buChar char=\"•\"/></a:pPr><a:r><a:rPr lang=\"en-US\" sz=\"1000\" dirty=\"0\"/><a:t>Bullet text</a:t></a:r></a:p>\n\nHeader paragraph (no bullet):\n<a:p><a:pPr><a:buNone/></a:pPr><a:r><a:rPr lang=\"en-US\" sz=\"1000\" b=\"1\" dirty=\"0\"/><a:t>Header text</a:t></a:r></a:p>",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "slide_index": {
+          "type": "number",
+          "description": "0-based slide index (user's slide 1 = index 0, slide 3 = index 2)"
+        },
+        "shape_id": {
+          "type": "string",
+          "description": "Shape ID from list_slide_shapes output (e.g., \"20\"). Stable and locale-independent."
+        },
+        "code": {
+          "type": "string",
+          "description": "Raw OOXML <a:p> paragraph XML to replace the shape's text content"
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["slide_index", "shape_id", "code"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "search_icons",
+    "description": "Search Microsoft's icon library for vector icons. Returns metadata (id, description, style) — use insert_icon to place a result on a slide.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search term for icons (e.g., 'dog', 'chart', 'warning')"
+        },
+        "top": {
+          "description": "Max results to return (default 5, max 20)",
+          "type": "number"
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["query"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "insert_icon",
+    "description": "Insert an icon from search_icons results onto a slide. The icon is inserted as a vector SVG with PNG fallback, matching PowerPoint's native Insert > Icons behavior. Optionally recolor the icon with a hex color.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "icon_id": {
+          "type": "string",
+          "description": "Icon ID from search_icons results"
+        },
+        "slide_index": {
+          "type": "number",
+          "description": "0-based slide index"
+        },
+        "x": {
+          "description": "Left position in points (default: centered on slide)",
+          "type": "number"
+        },
+        "y": {
+          "description": "Top position in points (default: centered on slide)",
+          "type": "number"
+        },
+        "width": {
+          "description": "Width in points (default: 72, i.e. 1 inch)",
+          "type": "number"
+        },
+        "height": {
+          "description": "Height in points (default: 72, i.e. 1 inch)",
+          "type": "number"
+        },
+        "description": {
+          "description": "Alt text for accessibility",
+          "type": "string"
+        },
+        "color": {
+          "description": "Fill color as hex (e.g., '#FF5733'). Recolors the entire icon uniformly.",
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{3,8}$"
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": ["icon_id", "slide_index"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "ask_user_question",
+    "description": "Present tappable options to gather user preferences before starting work. This tool displays interactive options that users can tap to answer, which is faster and easier than typing.\n\nWHEN TO USE THIS TOOL:\nUse this for ELICITATION - when you need to understand the user's preferences, constraints, or goals before proceeding.\n\nSpreadsheet examples:\n- \"Build me a financial model\" → Ask about model type (DCF / 3-statement / LBO), time horizon (5-year / 10-year), whether they have assumptions or want standard ones\n- \"Help me analyze this data\" → Ask about analysis type (trends / comparisons / distributions), how to present results (summary / chart / pivot table)\n- \"Create a budget template\" → Ask about time granularity (monthly / quarterly / annual), department vs project-based\n- \"Clean up this spreadsheet\" → Ask about what to prioritize (formatting / data validation / structure / duplicates)\n\nSlide examples:\n- \"Make me a presentation about X\" → Ask about audience (executives / team / customers), length (5-slide overview / 10-15 slide deep-dive), tone (formal / conversational)\n- \"Turn this into slides\" (given text or data) → Ask how to structure it (one topic per slide / grouped by theme), what to visualize vs bullet-point, level of detail (high-level summary / detailed breakdown)\n- \"Make this look better\" / \"Redesign these slides\" → Ask what to focus on (visual consistency / reducing density / restructuring flow), whether to keep the current structure or reorganize\n\nCRITICAL: If you find yourself about to write clarifying questions with bullet points or numbered options in your response, STOP and use this tool instead. The questions you were going to write should become tappable options.\n\nWHEN NOT TO USE THIS TOOL:\n- User asks for your analysis or recommendation (e.g. \"Which formula should I use?\") → Give your perspective directly\n- Factual or how-to questions (e.g. \"How do I freeze panes?\", \"How do I add speaker notes?\") → Just answer\n- User needs prose feedback (e.g. \"Does this formula look right?\", \"Does this slide flow well?\") → Provide written analysis\n- The question requires open-ended numeric input (e.g. \"What revenue to assume?\", \"What discount rate?\") → Ask in natural language\n- Simple, unambiguous requests (e.g. \"Sum column A\", \"Add a title slide\", \"Change the font to Arial\", \"Move this chart to slide 3\") → Just do it\n\nAlways include a brief conversational message before presenting options - don't show options silently. Keep each question focused with 2-4 clear options.\n\nDo NOT include \"Other\" as one of the options — the UI already provides a free-text \"Something else\" input automatically.\n\nFor single-select questions, the response is a string. For multi-select, it's an array of strings.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "questions": {
+          "minItems": 1,
+          "maxItems": 4,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "question": {
+                "type": "string"
+              },
+              "header": {
+                "type": "string"
+              },
+              "options": {
+                "minItems": 2,
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["label", "description"]
+                }
+              },
+              "multiSelect": {
+                "type": "boolean"
+              }
+            },
+            "required": ["question", "header", "options", "multiSelect"]
+          }
+        }
+      },
+      "required": ["questions"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "refresh_mcp_connectors",
+    "description": "Re-fetch the user's MCP connectors from claude.ai and reconnect any new or failed servers.\n\nUse this tool when:\n- The user says a connector isn't showing up or they just connected one on claude.ai\n- The user asks to refresh, reload, or reconnect their MCP connectors\n- A connector tool call fails unexpectedly and a fresh connection may help\n\nReturns the updated list of connectors with their connection status. If any connectors are disconnected or failed, let the user know they can reconnect by either:\n1. Opening the Connectors menu (via the + button) where each connector has a link out to manage it on claude.ai\n2. Going directly to their claude.ai settings to re-authenticate or manage their connector connections",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "get_connected_agents",
+    "description": "List all currently connected agents you can communicate with. Returns their IDs and schema information (label, instructions, context).",
+    "input_schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "send_message",
+    "description": "Send a message to another connected agent, requesting it to perform work.\n\nAt the protocol level, send_message is fire-and-forget: it dispatches the message and returns immediately without waiting for a response.\n\nWORKFLOW:\n1. FIRST check if the data you need is already in the other agent's transcript. Use the bash tool: cat /agents/<id>/transcript.jsonl | tail -20. Tool results contain cell values, chart details, slide content, etc. Reading is instant.\n2. ONLY if the data is NOT in the transcript and you need the agent to perform NEW work (create, modify, extract), send a message.\n\n3. AFTER sending: end your turn immediately. Do NOT continue with other tool calls. The other agent's reply is queued and will be delivered as a new inbound message — you will be notified when it arrives.\n\nWhen sending to multiple agents, tell the user that replies will arrive one at a time as each agent finishes.\n\nDATA SHARING. Do NOT paste large content (cell values, tables, JSON, XML) into the message text. Instead, write the data to a shared file using your surface's file-sharing tool — the file is broadcast to all connected agents and visible at /agents/<your-id>/files/<name> on their filesystems.\n\nCHOOSING A FORMAT. Before writing, check the target agent's accepted formats: call get_connected_agents and look at schema.capabilities.file_sharing.accept. Choose an extension from that list. If accept is absent the agent can parse any format. Example: an Excel add-in may accept csv/json/xml but NOT xlsx — it runs OfficeJS, not Python, so it cannot unzip OOXML containers.\n\nThen send a one-sentence message saying what you want done. Do NOT describe the file's contents, structure, or format in the message — the receiving agent can inspect the file directly. Do NOT include instructions on how to read it.\n\nFILE SHARING MECHANICS: To broadcast a file, inside execute_office_js read your data and call conductor.writeFile(\"name.json\", JSON.stringify(data)). The file is immediately visible to all peers at /agents/<your-id>/files/name.json.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The ID of the agent to send the message to."
+        },
+        "message": {
+          "type": "string",
+          "description": "The message content."
+        }
+      },
+      "required": ["agent_id", "message"]
+    }
+  },
+  {
+    "name": "bash",
+    "description": "Run a bash command against the shared agent workspace. Each connected agent has a directory at /agents/<agent-id>/ with:\n  transcript.jsonl  — conversation messages ({role, content} JSON per line)\n  files/            — shared files from the agent (if any)\n\nThis is a sandboxed, read-only virtual shell — NOT a real bash environment. Only the following commands are available:\n  cat head tail wc file stat du grep egrep fgrep rg find cut sort uniq tr rev nl fold expand unexpand column comm join paste diff tac strings od jq base64 ls pwd env printenv basename dirname tree true false seq expr date which xargs\n\nNOT available: awk, sed, echo, printf, curl, wget, python, node, less, more, or any command not listed above. Attempting them returns \"command not found\".\n\nKEEP IT SIMPLE — use one command at a time. Do NOT chain pipes, suppress stderr with 2>/dev/null, or build complex one-liners. Simple commands work; complex pipelines break in this sandbox.\n\n== Reading transcripts ==\nUse `tail` to read the latest messages — this is almost always what you need:\n  tail -10 /agents/excel-abc/transcript.jsonl        # last 10 messages\nUse `grep` only when searching for something specific:\n  grep 'revenue' /agents/excel-abc/transcript.jsonl  # find a topic\n\n== Reading files ==\nUse `ls` to see what files an agent has:\n  ls /agents/excel-abc/files/\nThen use `head` to peek at the shape — just enough to write code against:\n  head -5 /agents/excel-abc/files/data.csv           # column names + a few rows\n  jq 'keys' /agents/excel-abc/files/data.json        # top-level structure\nOnce you know the shape, you're good — use your code-execution tool with conductor.readFile() to process the full file. The data stays out of your context entirely; the header is enough to write correct code.\n\n== Anti-patterns (never do these) ==\n  cat file | tail -5 | jq '...' 2>/dev/null | head   # over-piped\n  find /agents -type f -name \"*\" | grep -v ...        # use ls instead\n  ls -la /agents/*/files/ 2>/dev/null                 # globs can fail; ls each dir\n  for i in ...; do cat ...; done                      # no loops\n  cat /agents/excel-abc/files/data.csv                # bare cat dumps entire file\n\nIMPORTANT: Check conversations BEFORE using send_message. The data you need may already be in another agent's conversation file.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The bash command to execute."
+        }
+      },
+      "required": ["command"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "update_instructions",
+    "description": "Update the user's always-on instructions using find-and-replace operations. Instructions are applied to every response and persist across conversations.\n\nEach operation has old_text (text to find) and new_text (replacement). Rules:\n- To ADD new content: set old_text to \"\" (empty string) and new_text to the content to append. ALWAYS prefer this for adding new sections — never repeat existing content in old_text just to append.\n- To REMOVE content: set old_text to the exact text to remove and new_text to \"\".\n- To REPLACE content: set old_text to the exact text to find and new_text to the replacement. Only include the minimal text that needs to change.\n\nold_text must match EXACTLY (including whitespace and newlines). If old_text is not found, the operation fails.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "old_text": {
+                "type": "string",
+                "description": "The exact text to find in the current instructions. Use an empty string to append new content to the end."
+              },
+              "new_text": {
+                "type": "string",
+                "description": "The text to replace old_text with. Use an empty string to delete the matched text."
+              }
+            },
+            "required": ["old_text", "new_text"]
+          },
+          "description": "A list of find-and-replace operations to apply sequentially to the current instructions. Each operation finds old_text and replaces it with new_text."
+        }
+      },
+      "required": ["operations"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "read_skill",
+    "description": "Read the full instructions for a skill. Call this BEFORE executing any skill to get its detailed instructions. Pass the skill name from the <available_skills> list.\n\nThe result includes:\n- instructions: The skill's entry point with routing tables and workflow steps.\n- files: Text file contents keyed by path (e.g. workflow .md files) — read these directly.\n- blob_files: Paths to binary files available via blobs.get()/blobs.getBase64()/blobs.getText()/ExcelJS in execute_office_js code.\n- blob_guidance: Auto-generated examples for accessing binary files on the current surface.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "skill_name": {
+          "type": "string",
+          "description": "The name of the skill to read instructions for"
+        }
+      },
+      "required": ["skill_name"]
+    },
+    "cache_control": {
+      "type": "ephemeral"
+    }
+  }
+]
