@@ -1,0 +1,16 @@
+/var/folders/zd/v1hpy47n7q30vl_df09rc7tr0000gn/T/browser-workbook-preview-xlsx-bridge/XlsxBridge
+/var/folders/zd/v1hpy47n7q30vl_df09rc7tr0000gn/T/browser-workbook-preview-xlsx-bridge/XlsxBridge.deps.json
+/var/folders/zd/v1hpy47n7q30vl_df09rc7tr0000gn/T/browser-workbook-preview-xlsx-bridge/XlsxBridge.runtimeconfig.json
+/var/folders/zd/v1hpy47n7q30vl_df09rc7tr0000gn/T/browser-workbook-preview-xlsx-bridge/XlsxBridge.dll
+/var/folders/zd/v1hpy47n7q30vl_df09rc7tr0000gn/T/browser-workbook-preview-xlsx-bridge/XlsxBridge.pdb
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/XlsxBridge.csproj.AssemblyReference.cache
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/XlsxBridge.GeneratedMSBuildEditorConfig.editorconfig
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/XlsxBridge.AssemblyInfoInputs.cache
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/XlsxBridge.AssemblyInfo.cs
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/XlsxBridge.csproj.CoreCompileInputs.cache
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/XlsxBridge.csproj.Up2Date
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/XlsxBridge.dll
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/refint/XlsxBridge.dll
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/XlsxBridge.pdb
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/XlsxBridge.genruntimeconfig.cache
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Release/net9.0/ref/XlsxBridge.dll

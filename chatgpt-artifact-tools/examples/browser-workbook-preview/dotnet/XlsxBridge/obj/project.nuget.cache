@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "bOx6Ro7WTJ8=",
+  "success": true,
+  "projectFilePath": "/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/XlsxBridge.csproj",
+  "expectedPackageFiles": [
+    "/Users/m1a1/.nuget/packages/documentformat.openxml/3.3.0/documentformat.openxml.3.3.0.nupkg.sha512",
+    "/Users/m1a1/.nuget/packages/documentformat.openxml.framework/3.3.0/documentformat.openxml.framework.3.3.0.nupkg.sha512",
+    "/Users/m1a1/.nuget/packages/system.io.packaging/8.0.1/system.io.packaging.8.0.1.nupkg.sha512"
+  ],
+  "logs": []
+}

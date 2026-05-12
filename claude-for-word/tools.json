@@ -1,0 +1,530 @@
+[
+  {
+    "type": "code_execution_20250825",
+    "name": "code_execution"
+  },
+  {
+    "type": "web_search_20250305",
+    "name": "web_search"
+  },
+  {
+    "type": "custom",
+    "name": "execute_office_js",
+    "description": "Execute Office.js JavaScript code to interact with the Word document. The code receives a context parameter and runs inside Word.run(). Use this for any document operations.\n\nA `conductor` global is available for sharing files with other agents:\n  `conductor.writeFile(\"data.json\", jsonString)`  \u2014 broadcast a file to all connected agents\n  `conductor.readFile(\"excel-abc\", \"data.json\")`  \u2014 read another agent's file\n  `conductor.listFiles(\"excel-abc\")`              \u2014 list an agent's shared files\n\nLARGE DATA: When you need to send data to another agent, use execute_office_js to read the data and call conductor.writeFile() with a descriptive filename. The file is broadcast immediately to all peers.\n\nUSING RECEIVED FILES: Read AND use inside the SAME code block. NEVER `return conductor.readFile(...)` \u2014 that dumps the entire file into your context.\n\nA `blobs` global provides read-only access to skill-bundled files (populated by `read_skill`):\n  `blobs.getText(\"name\")`   \u2014 decoded UTF-8 string or null\n  `blobs.get(\"name\")`       \u2014 Uint8Array or null\n  `blobs.getBase64(\"name\")` \u2014 base64 string or null\n  `blobs.has(\"name\")`       \u2014 check if blob exists\n  `blobs.keys()`            \u2014 list stored blob names",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Async function body that receives 'context: Word.RequestContext'. Must call context.sync() to execute batched operations and load() to read properties. Return JSON-serializable results."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [
+        "code"
+      ]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "store_blob",
+    "description": "Fetch raw bytes from the Files API into the local blob store. ONLY use when you need the raw binary in the browser (e.g., .docx template via insertFileFromBase64). For parsing tabular/document data (.xlsx, .pdf, .docx, .csv), use code_execution instead. Skill files are loaded automatically by read_skill.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "string",
+          "description": "Files API file ID"
+        },
+        "blob_name": {
+          "type": "string",
+          "description": "Name to access this blob via blobs.getText(name), blobs.getBase64(name), or blobs.get(name)"
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [
+        "file_id",
+        "blob_name"
+      ]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "edit_doc_text",
+    "description": "Surgical text replacement \u2014 finds old_text and replaces only that range, so tracked changes show word/sentence-level revisions instead of whole-paragraph delete+insert. Use this for mechanical edits: typos, formatting, numbering fixes, defined-term consistency sweeps. For substantive changes that alter meaning (rewording a clause, modifying a cap or date, adding/removing a provision), use propose_doc_edits so the user can review before the document changes. Falls back to execute_office_js only for structural edits (inserting paragraphs, changing styles, tables).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "old_text": {
+          "type": "string",
+          "description": "Exact text to replace. To span multiple paragraphs, join with \\n: each line is the FULL text of one paragraph in order. Must appear exactly once \u2014 include enough surrounding words to make it unique. Match is literal on whitespace; curly vs straight quotes are auto-normalized."
+        },
+        "new_text": {
+          "type": "string",
+          "description": "Replacement text. Empty string deletes the matched range. Use \\n for paragraph breaks \u2014 each newline becomes a Word paragraph mark, enabling multi-paragraph insertions."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [
+        "old_text",
+        "new_text"
+      ]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "edit_doc_list",
+    "description": "Create a simple bullet/number list or insert an item into an existing list. Wraps the known-good Office.js list pattern \u2014 .style assignment for new lists, attachToList() for insertion \u2014 so numbering never restarts. For multi-level (a)(i) numbering, custom schemes, or level changes, use execute_office_js instead.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create_list",
+            "insert_item"
+          ],
+          "description": "'create_list' inserts a new bullet/number list after anchor_text (requires: anchor_text, items, list_style). 'insert_item' adds one item to an existing list next to anchor_item_text (requires: anchor_item_text, new_item_text, position)."
+        },
+        "anchor_text": {
+          "type": "string",
+          "description": "[create_list only] Unique text from the paragraph the list should follow (max 255 chars)."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "[create_list only] Item texts, in order. No bullet characters or number prefixes."
+        },
+        "list_style": {
+          "type": "string",
+          "enum": [
+            "bullet",
+            "number"
+          ],
+          "description": "[create_list only] 'bullet' or 'number'."
+        },
+        "anchor_item_text": {
+          "type": "string",
+          "description": "[insert_item only] Unique text from an EXISTING list item (max 255 chars). The new item attaches to that item's list at the same level."
+        },
+        "new_item_text": {
+          "type": "string",
+          "description": "[insert_item only] New item text. No bullet or number prefix \u2014 Word renders it."
+        },
+        "position": {
+          "type": "string",
+          "enum": [
+            "Before",
+            "After"
+          ],
+          "description": "[insert_item only] Relative to the anchor item."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "read_doc_section",
+    "description": "Read a section of the document by heading or paragraph range. Use this when <doc_state> shows only an outline (large document) and you need the actual text of a section \u2014 it's cheaper than writing execute_office_js just to read. Returns paragraph text with indices so you can follow up with edit_doc_text or a targeted paragraph_start/paragraph_end read.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "heading": {
+          "type": "string",
+          "description": "Heading text (exact match against the outline in <doc_state>). Reads from that heading through to the next heading of the same or higher level."
+        },
+        "paragraph_start": {
+          "type": "integer",
+          "description": "Zero-based paragraph index to start reading from. Use when the target section has no heading."
+        },
+        "paragraph_end": {
+          "type": "integer",
+          "description": "Zero-based exclusive end index. Defaults to paragraph_start + 1 if omitted."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [],
+      "_refinements": [
+        "Provide heading or paragraph_start (at least one required)",
+        "Provide heading OR paragraph_start, not both"
+      ]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "read_attachment_pages",
+    "description": "Read specific pages from an attached PDF with full visual fidelity \u2014 tables, figures, and layout render correctly. Use this BEFORE writing any number, quote, or page citation drawn from an attached PDF: read the page, find the supporting line, then write. For bulk text search across the whole file, code_execution + pdfplumber is still available; use this tool when accuracy on a specific page matters.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "Name of the attached PDF exactly as it appears in <uploaded_files> (without the page-count suffix)."
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "minItems": 1,
+          "maxItems": 10,
+          "description": "1-indexed page numbers to read (max 10 per call). Read only the pages you need to verify or cite."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [
+        "filename",
+        "pages"
+      ]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "collapse_blank_paragraphs",
+    "description": "Collapse runs of consecutive empty paragraphs down to at most max_consecutive. Use this instead of hand-rolling paragraph.delete() loops in execute_office_js \u2014 it deletes in reverse-order batches with a sync between each so large documents (hundreds of blanks) don't time out or hit stale-proxy errors. Paragraphs that are text-empty but carry structural content (image/shape/embedded object, section break, bookmark, tracked change, or comment anchor) are preserved (reported as skipped_with_content); empty list items and table-cell paragraphs are also preserved.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "max_consecutive": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 1,
+          "description": "How many blank paragraphs to keep where a run of blanks exists (0, 1, or 2). Defaults to 1."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "type": "custom",
+    "name": "propose_doc_edits",
+    "description": "Stage substantive language changes for the user to review in chat BEFORE the document changes. The user sees each proposed diff as a standalone card with Apply/Dismiss buttons and works through them in any order.\n\nUse this when the edit changes legal or business meaning \u2014 rewording a clause, adding or removing a provision, changing a defined term's definition, modifying a cap/threshold/date, drafting a response to a counterparty redline. Anything the user would need to defend to opposing counsel or a stakeholder goes through here.\n\nDo NOT use this for mechanical edits \u2014 typos, formatting, numbering fixes, defined-term consistency sweeps, punctuation. Those go straight in via edit_doc_text.\n\nNever write proposed language in chat for the user to read and then say \"yes do that.\" If you have language to suggest, it goes here.\n\nEach edit's old_text/new_text is the exact edit_doc_text contract \u2014 a proposal is a fully-specified, ready-to-execute diff. The tool validates every old_text is uniquely findable at propose time and rejects stale ones. After the user reviews, the next turn's context includes <user_reviewed_edits> listing which ids were applied, dismissed, or failed.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "edits": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Short stable identifier you assign (e.g., 'indemn-cap-1') so the next-turn <user_reviewed_edits> block can tell you which proposals the user applied or dismissed. Internal bookkeeping only \u2014 the card does not display it."
+              },
+              "section": {
+                "type": "string",
+                "description": "Heading or clause name the edit falls under (e.g., 'Limitation of Liability'). Shown as the navigate-arrow's tooltip on the card."
+              },
+              "location": {
+                "type": "string",
+                "description": "Deprecated \u2014 kept optional for back-compat."
+              },
+              "change_summary": {
+                "type": "string",
+                "description": "One-line title for the card, e.g. 'Liability cap $1M \u2192 $5M' or 'Add mutual indemnification carve-out'."
+              },
+              "old_text": {
+                "type": "string",
+                "description": "Exact text to replace. Same contract as edit_doc_text. Validated at propose time."
+              },
+              "new_text": {
+                "type": "string",
+                "description": "Replacement text. Empty string deletes. Use \\n for paragraph breaks."
+              },
+              "new_text_label": {
+                "type": "string",
+                "description": "Short (2-4 word) label for new_text when alternatives are also supplied \u2014 e.g. 'Flat 1\u00d7 cap'."
+              },
+              "alternatives": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "text"
+                  ]
+                },
+                "description": "Up to 3 alternative phrasings for the same range. The card stacks them as radio options with diffs visible side-by-side."
+              },
+              "context_before": {
+                "type": "string",
+                "description": "A few words immediately preceding old_text, so the diff card reads as continuous prose."
+              },
+              "context_after": {
+                "type": "string",
+                "description": "A few words immediately following old_text."
+              },
+              "reasoning": {
+                "type": "string",
+                "description": "Why you're proposing this. One sentence for routine changes; expand for structural changes. Shown behind an expandable detail row."
+              }
+            },
+            "required": [
+              "id",
+              "section",
+              "change_summary",
+              "old_text",
+              "new_text"
+            ]
+          }
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [
+        "edits"
+      ]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "explain_edits",
+    "description": "Verify your reasoning BEFORE making any edit that introduces or changes legal language \u2014 a new definition, a reworded clause, a modified term, a new provision, a deletion, an accepted or rejected redline. If you're about to draft wording yourself (even one sentence), call this first. Skip only for purely mechanical edits: typo fixes, formatting, verbatim find-replace the user dictated.\n\nCall this after reading the document but before the edit \u2014 the purpose is human-in-the-loop verification. Provide structured rationale per planned edit. Decompose your reasoning into grounding claims \u2014 each claim is either checkable (document_text, tracked_change, external_law, skill_instruction, user_instruction) or labeled as model_judgment.\n\nA fresh-context verifier checks every checkable claim against the actual document, redlines, skill content, and standing instructions. The verifier does not see the conversation.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "edits": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "location": {
+                "type": "string",
+                "description": "DocCitation anchor in kind:target format \u2014 heading:Section Name, revision:N, paragraph:id, comment:id, footnote:N, or endnote:N."
+              },
+              "change_summary": {
+                "type": "string",
+                "description": "One line: what you intend to change."
+              },
+              "proposed_text": {
+                "type": "string",
+                "description": "The actual language you plan to insert or the new wording. Omit for non-text edits."
+              },
+              "reasoning": {
+                "type": "string",
+                "description": "The full WHY \u2014 the chain of reasoning behind this planned edit, in prose."
+              },
+              "grounding": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "claim": {
+                      "type": "string",
+                      "description": "The factual claim the reasoning rests on, stated plainly."
+                    },
+                    "basis": {
+                      "type": "string",
+                      "enum": [
+                        "document_text",
+                        "tracked_change",
+                        "external_law",
+                        "skill_instruction",
+                        "user_instruction",
+                        "model_judgment"
+                      ],
+                      "description": "What grounds this claim."
+                    },
+                    "reference": {
+                      "type": "string",
+                      "description": "Section number, case citation, skill section, etc. Omit for model_judgment."
+                    },
+                    "skill_name": {
+                      "type": "string",
+                      "description": "Required when basis=skill_instruction. The exact skill name from <available_skills>."
+                    }
+                  },
+                  "required": [
+                    "claim",
+                    "basis"
+                  ]
+                },
+                "description": "Decompose reasoning into checkable claims. Do NOT ground on 'the user asked me to'."
+              },
+              "confidence": {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "needs_review"
+                ],
+                "description": "high = grounded + verified; medium = grounded but judgment-heavy; needs_review = open question or weak grounding."
+              },
+              "open_question": {
+                "type": "string",
+                "description": "A question for the lawyer \u2014 business call, missing context, etc."
+              }
+            },
+            "required": [
+              "location",
+              "change_summary",
+              "reasoning",
+              "grounding",
+              "confidence"
+            ]
+          }
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [
+        "edits"
+      ]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "verify_doc",
+    "description": "Fast structural check \u2014 returns paragraph style distribution, list numbering sequence, and per-table row/cell shape. No screenshot, no LLM call. Use between edits to spot numbering restarts, table breaks, or a paragraph that fell off its style. For rendered-appearance issues (fonts, spacing, reflow), use verify_doc_visual instead.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "type": "custom",
+    "name": "verify_doc_visual",
+    "description": "Visually verify the document's rendered formatting by exporting to PDF and sending to a fresh-context reviewer. Catches font inconsistencies, style breaks, and table reflow that text read-back misses. Not supported on Word for Web.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "page_hint": {
+          "type": "string",
+          "description": "Optional hint for the reviewer about where to focus (e.g., 'page 3' or 'the Limitation of Liability section'). The full document is always reviewed; this just prioritizes attention."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "type": "custom",
+    "name": "bash",
+    "description": "A sandboxed, read-only shell scoped to /agents/. Only supports: cat, head, tail, wc, grep, rg, find, cut, sort, uniq, jq, ls, diff, and similar read-only utilities. Purpose: peek at peer state cheaply before deciding whether to use send_message.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The bash command to execute."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "get_connected_agents",
+    "description": "List all currently connected agents you can communicate with. Returns their IDs and schema information (label, instructions, context).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "type": "custom",
+    "name": "send_message",
+    "description": "Send a message to another connected agent. Fire-and-forget \u2014 no synchronous response. The receiving agent processes it as a new prompt when idle.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The ID of the agent to send the message to."
+        },
+        "message": {
+          "type": "string",
+          "description": "The message to send to the agent."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "A very brief description of the action (max 50 chars). Shown next to the tool icon & permission prompts."
+        }
+      },
+      "required": [
+        "agent_id",
+        "message"
+      ]
+    }
+  }
+]

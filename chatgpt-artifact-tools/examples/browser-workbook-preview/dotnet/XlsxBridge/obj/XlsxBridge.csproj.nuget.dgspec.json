@@ -1,0 +1,73 @@
+{
+  "format": 1,
+  "restore": {
+    "/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/XlsxBridge.csproj": {}
+  },
+  "projects": {
+    "/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/XlsxBridge.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/XlsxBridge.csproj",
+        "projectName": "XlsxBridge",
+        "projectPath": "/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/XlsxBridge.csproj",
+        "packagesPath": "/Users/m1a1/.nuget/packages/",
+        "outputPath": "/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/Users/m1a1/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "targetAlias": "net9.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "9.0.300"
+      },
+      "frameworks": {
+        "net9.0": {
+          "targetAlias": "net9.0",
+          "dependencies": {
+            "DocumentFormat.OpenXml": {
+              "target": "Package",
+              "version": "[3.3.0, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/private/tmp/dotnet-sdk/sdk/9.0.313/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}

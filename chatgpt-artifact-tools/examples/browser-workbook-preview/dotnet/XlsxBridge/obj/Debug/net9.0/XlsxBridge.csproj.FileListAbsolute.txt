@@ -1,0 +1,16 @@
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/XlsxBridge.csproj.AssemblyReference.cache
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/XlsxBridge.GeneratedMSBuildEditorConfig.editorconfig
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/XlsxBridge.AssemblyInfoInputs.cache
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/XlsxBridge.AssemblyInfo.cs
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/XlsxBridge.csproj.CoreCompileInputs.cache
+/tmp/xlsx-bridge-out/XlsxBridge
+/tmp/xlsx-bridge-out/XlsxBridge.deps.json
+/tmp/xlsx-bridge-out/XlsxBridge.runtimeconfig.json
+/tmp/xlsx-bridge-out/XlsxBridge.dll
+/tmp/xlsx-bridge-out/XlsxBridge.pdb
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/XlsxBridge.csproj.Up2Date
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/XlsxBridge.dll
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/refint/XlsxBridge.dll
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/XlsxBridge.pdb
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/XlsxBridge.genruntimeconfig.cache
+/Users/m1a1/Developer/oai-artifact-tools/examples/browser-workbook-preview/dotnet/XlsxBridge/obj/Debug/net9.0/ref/XlsxBridge.dll

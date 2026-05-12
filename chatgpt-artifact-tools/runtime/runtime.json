@@ -1,0 +1,19 @@
+{
+  "bundleFormatVersion": 2,
+  "bundleVersion": "26.430.10722",
+  "bundledPlugins": [
+    "plugins/openai-primary-runtime"
+  ],
+  "bundledSkills": [],
+  "nodeVersion": "v24.14.0",
+  "pythonVersion": "3.12.13",
+  "skillsToRemove": [
+    "codex-primary-runtime/spreadsheets",
+    "codex-primary-runtime/slides",
+    "docs",
+    "spreadsheet",
+    "slides"
+  ],
+  "targetArch": "arm64",
+  "targetPlatform": "darwin"
+}

@@ -1,0 +1,41 @@
+{
+  "name": "openai-primary-runtime",
+  "plugins": [
+    {
+      "name": "documents",
+      "source": {
+        "source": "local",
+        "path": "./plugins/documents"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "spreadsheets",
+      "source": {
+        "source": "local",
+        "path": "./plugins/spreadsheets"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "presentations",
+      "source": {
+        "source": "local",
+        "path": "./plugins/presentations"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
